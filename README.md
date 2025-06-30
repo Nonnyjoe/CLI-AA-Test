@@ -9,7 +9,7 @@ Follow these steps to get this project up and running on your local machine:
    Use the following command to clone this repository to your local machine:
 
    ```bash
-   git clone 
+   git clone https://github.com/Nonnyjoe/CLI-AA-Test
    ```
 
 2. **Install dependencies**
