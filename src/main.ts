@@ -1,29 +1,35 @@
 import "dotenv/config"
 import {
   createKernelAccount,
-  createZeroDevPaymasterClient,
   createKernelAccountClient,
-  getUserOperationGasPrice,
-  createFallbackKernelAccountClient,
 } from "@zerodev/sdk"
-import { createEcdsaKernelMigrationAccount, signerToEcdsaValidator } from "@zerodev/ecdsa-validator"
-import { http, Hex, createPublicClient, zeroAddress, Address, isAddressEqual, defineChain } from "viem"
+import { signerToEcdsaValidator } from "@zerodev/ecdsa-validator"
+import { http, Hex, createPublicClient, zeroAddress, Address, defineChain, parseAbi, encodeFunctionData } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
-import { sepolia } from "viem/chains"
-import { KERNEL_V3_0, KERNEL_V3_2, KernelVersionToAddressesMap } from "@zerodev/sdk/constants"
+import { KERNEL_V3_2 } from "@zerodev/sdk/constants"
 import {
   entryPoint07Address,
   EntryPointVersion,
 } from "viem/account-abstraction"
-import { getKernelImplementationAddress, getKernelVersion } from "@zerodev/sdk/actions"
 import { createPimlicoClient } from "permissionless/clients/pimlico";
 import { createPaymasterClient } from "viem/account-abstraction";
 
 
 
-const BUNDLER_RPC = `http://127.0.0.1:6752/bundler/rpc`
-const PAYMASTER_RPC = `http://127.0.0.1:6752/paymaster`
-const APPRPC = `http://127.0.0.1:6752/anvil`
+const BUNDLER_RPC = `http://127.0.0.1:6751/bundler/rpc`
+const PAYMASTER_RPC = `http://127.0.0.1:6751/paymaster/`
+const APPRPC = `http://127.0.0.1:6751/anvil`
+const appAddress = "0xa083af219355288722234c47d4c8469ca9af6605";
+const inpuBoxAddress = "0xc70074BDD26d8cF983Ca6A5b89b8db52D5850051";
+
+const contractABI = parseAbi([
+  "function mint(address _to) public",
+  "function balanceOf(address owner) external view returns (uint256 balance)",
+]);
+
+const inputBoxABI = parseAbi([
+  "function addInput(address appContract, bytes calldata payload) external returns (bytes32)",
+]);
 
 export const cannon = /*#__PURE__*/ defineChain({
   id: 13_370,
@@ -34,7 +40,7 @@ export const cannon = /*#__PURE__*/ defineChain({
     symbol: 'ETH',
   },
   rpcUrls: {
-    default: { http: ['http://127.0.0.1:6752/anvil'] },
+    default: { http: ['http://127.0.0.1:6751/anvil'] },
   },
 })
 
@@ -74,7 +80,6 @@ const main = async () => {
     plugins: {
       sudo: ecdsaValidator,
     },
-    address: signer.address,
     entryPoint,
     kernelVersion: originalKernelVersion,
   })
@@ -90,69 +95,44 @@ const main = async () => {
   };
 
 
-
-  const paymasterClient = createZeroDevPaymasterClient({
-    chain,
-    transport: http(PAYMASTER_RPC),
-  })
-
-  const paymasterClient2 = createPaymasterClient({
+  const paymasterClient = createPaymasterClient({
     transport: http(PAYMASTER_RPC),
 })
-
   
-
   const kernelClient = createKernelAccountClient({
     account,
     chain,
     bundlerTransport: http(BUNDLER_RPC),
     userOperation: { estimateFeesPerGas },
     client: publicClient,
-    paymaster: paymasterClient2,
-  })
-
-  const kernelClient2 = createKernelAccountClient({
-      account,
-      chain,
-      bundlerTransport: http(BUNDLER_RPC),
-      client: publicClient,
-      paymaster: {
-        getPaymasterData: (userOperation) => {
-          return paymasterClient.sponsorUserOperation({
-            userOperation,
-          })
-        }
-    },
+    paymaster: paymasterClient,
   })
 
 
-  console.log("client1 created, address::", kernelClient.account.accountImplementationAddress);
-  console.log("client2 created, address::", kernelClient2.account.accountImplementationAddress);
+  console.log("client created, address::", kernelClient.account.accountImplementationAddress);
 
-  // const fallbackKernelClient = createFallbackKernelAccountClient([
-  //   kernelClient
-  // ])
-  // console.log("Account address:", fallbackKernelClient.account.address)
-
-  // const txHash = await fallbackKernelClient.sendTransaction({
-  //   to: zeroAddress,
-  //   value: BigInt(0),
-  //   data: "0x"
-  // })
-
-  // console.log("Txn hash:", txHash)
 
   const userOpHash = await kernelClient.sendUserOperation({
     callData: await kernelClient.account.encodeCalls([{
-      to: zeroAddress,
+      to: inpuBoxAddress,
       value: BigInt(0),
-      data: "0x",
+      data: encodeFunctionData({
+        abi: inputBoxABI,
+        functionName: "addInput",
+        args: [appAddress, "0x67656e65726963"],
+      }),
     }]),
   })
   console.log("UserOp hash:", userOpHash)
 
+  const _receipt = await kernelClient.waitForUserOperationReceipt({
+    hash: userOpHash,
+  })
+  console.log('bundle txn hash: ', _receipt.receipt.transactionHash)
 
+  console.log("userOp completed")
 
+  process.exit(0);
 }
 
 main()
